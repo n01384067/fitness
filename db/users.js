@@ -1,19 +1,6 @@
-const express = require("express");
-const usersRouter = express.Router();
+const { client } = require("../db/client");
 
-usersRouter.use((req, res, next) => {
-  console.log("A request is being made to /users");
-
-  next();
-});
-
-usersRouter.get("/", (req, res) => {
-  res.send({
-    users: [],
-  });
-});
-
-async function createUser({ username, password }) {
+async function createUser({ id, username, password }) {
   try {
     const {
       rows: [user],
@@ -24,7 +11,7 @@ async function createUser({ username, password }) {
         ON CONFLICT (username) DO NOTHING
         RETURNING *;
         `,
-      [username, password]
+      [id, username, password]
     );
     return user;
   } catch (error) {
@@ -32,22 +19,19 @@ async function createUser({ username, password }) {
   }
 }
 
-async function getUser(username) {
+async function getAllUsers() {
   try {
-    const {
-      rows: [user],
-    } = await client.query(
-      `
-          SELECT *
-          FROM users
-          WHERE username=$2
-        `,
-      [username]
-    );
-    return user;
+    const { rows } = await client.query(`
+      SELECT id, username 
+      FROM users;
+    `);
+    return rows;
   } catch (error) {
     throw error;
   }
 }
 
-module.exports = usersRouter;
+module.exports = {
+  createUser,
+  getAllUsers,
+};

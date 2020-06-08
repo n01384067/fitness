@@ -1,39 +1,24 @@
-const express = require("express");
-const routinesRouter = express.Router();
-
-routinesRouter.use((req, res, next) => {
-  console.log("A request is being made to /routines");
-
-  next();
-});
-
-routinesRouter.get("/", (req, res) => {
-  res.send({
-    routines: [],
-  });
-});
+const { client } = require("../db/client");
 
 async function getAllRoutines() {
   try {
-    const { routines } = await client.query(`
+    const { rows } = await client.query(`
         SELECT *
         FROM routines
-        JOIN routine_activities.id ON routines.id
       `);
-    return routines;
+    return rows;
   } catch (error) {
     throw error;
   }
 }
 async function getPublicRoutines() {
   try {
-    const { routines } = await client.query(`
+    const { rows } = await client.query(`
         SELECT *
         FROM routines
         WHERE public = true
-        JOIN routine_activities.id ON routines.id
       `);
-    return routines;
+    return rows;
   } catch (error) {
     throw error;
   }
@@ -60,29 +45,28 @@ async function getPublicRoutinesByUser(username) {
       AND id = ${username}
       JOIN routine_activities.id ON routines.id;
     `);
-    const routines = await Promise.all(
-      routineIds.map((routine) => getRoutineById(routine.id))
-    );
+    // const routines = await Promise.all(
+    //   routineIds.map((routine) => getRoutineById(routine.id))
+    // );
     return routines;
   } catch (error) {
     throw error;
   }
 }
 
-async function getPublicRoutinesByActivity(activityId) {
+async function getPublicRoutineActivities(activityId) {
   try {
-    const { rows: routines } = await client.query(`
-          SELECT *
-          FROM routines 
-          WHERE public = true;
-          AND "activityId" = ${activityId}
-          JOIN routine_activities.id ON routines.id
-        `);
-    const routines = await Promise.all(
-      routineIds.map((routine) => getRoutineById(routine.id))
-    );
-    return routines;
+    const {
+      rows: [routine_activity],
+    } = await client.query(`
+      SELECT *
+      FROM routine_activities
+        JOIN routines ON routines.id = routine_activities."routineId"
+      WHERE routine_activities.id = ${activityId}
+    `);
+    return routine_activity;
   } catch (error) {
+    console.log(error);
     throw error;
   }
 }
@@ -93,56 +77,119 @@ async function createRoutine({ creatorId, public, name, goal }) {
       rows: [routines],
     } = await client.query(
       `
-          INSERT INTO routines(creatorId, public, name, goal) 
-          VALUES($2, $3, $4, $5)
+          INSERT INTO routines("creatorId", public, name, goal) 
+          VALUES($1, $2, $3, $4)
           RETURNING *;
         `,
       [creatorId, public, name, goal]
     );
+    return routines;
+  } catch (error) {
+    throw error;
+  }
+}
+
+async function getRoutineById({ routineId }) {
+  try {
+    const {
+      rows: [routine],
+    } = await client.query(
+      `
+      SELECT *
+      FROM routines
+      WHERE id=$1;
+    `,
+      [routineId]
+    );
+    console.log(routine);
+    if (!routine) {
+      throw {
+        name: "RoutineNotFound",
+        message: "Could not find a routine with that routineId",
+      };
+    }
+
+    return routine;
   } catch (error) {
     throw error;
   }
 }
 
 async function updateRoutine(routineId, fields = {}) {
-  const activities = fields;
   delete fields.activities;
   const setString = Object.keys(fields)
     .map((key, index) => `"${key}"=$${index + 1}`)
     .join(",");
-}
-try {
-  if (setString.length > 0) {
-    await client.query(
-      `
+
+  try {
+    if (setString.length > 0) {
+      await client.query(
+        `
         UPDATE routines
         SET ${setString}
         WHERE id=${routineId}
         RETURNING *;
       `,
-      Object.values(fields)
-    );
-  }
-  if (activities === undefined) {
-    return await getRoutinesById(routineId);
-  }
-  const activities = await createActivity(activity);
-  const routineListIdString = routineList
-    .map((tag) => `${routine.id}`)
-    .join(", ");
-  await client.query(
-    `
+        Object.values(fields)
+      );
+    }
+    if (activities === undefined) {
+      return await getRoutinesById(routineId);
+    }
+    const activities = await createActivity(activity);
+    const routineListIdString = routineList
+      .map((activities) => `${routine.id}`)
+      .join(", ");
+    await client.query(
+      `
       DELETE FROM routines
       WHERE "routineId"
       NOT IN (${routineListIdString})
       AND "routineId"=$2;
     `,
-    [activityId]
-  );
-  await addTagsToPost(postId, tagList);
-  return await getPostById(postId);
-} catch (error) {
-  throw error;
+      [activityId]
+    );
+    await addActivityToRoutine(routineId, activityList);
+    return await getPublicRoutinesByUser(routineId);
+  } catch (error) {
+    throw error;
+  }
+}
+async function updateRoutineActivities(id, fields) {
+  const setString = Object.keys(fields)
+    .map((key, index) => `"${key}"=$${index + 1}`)
+    .join(", ");
+
+  if (setString.length === 0) {
+    return;
+  }
+  console.log(setString, id);
+  try {
+    const { rows: routine_activities } = await client.query(
+      `
+        UPDATE routine_activities
+        SET ${setString}
+        WHERE id=${id}
+        RETURNING *;
+      `,
+      Object.values(fields)
+    );
+    console.log(routine_activities);
+    return routine_activities;
+  } catch (error) {
+    console.log(error);
+    throw error;
+  }
 }
 
-module.exports = routinesRouter;
+module.exports = {
+  getAllRoutines,
+  getAllRoutinesByUser,
+  getPublicRoutines,
+  getPublicRoutineActivities,
+  getPublicRoutinesByUser,
+  updateRoutine,
+  createRoutine,
+  updateRoutineActivities,
+  getRoutineById,
+};
